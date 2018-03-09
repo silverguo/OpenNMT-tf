@@ -45,6 +45,10 @@ class Runner(object):
         session_config=session_config,
         tf_random_seed=seed)
 
+    # Create a first session to enforce GPU options.
+    # See https://github.com/OpenNMT/OpenNMT-tf/issues/80.
+    _ = tf.Session(config=session_config)
+
     np.random.seed(seed)
     random.seed(seed)
 
@@ -73,16 +77,6 @@ class Runner(object):
             every_n_steps=self._estimator.config.save_summary_steps,
             output_dir=self._estimator.model_dir)]
 
-    default_sample_buffer_size = 1000000
-    if "sample_buffer_size" not in self._config["train"]:
-      tf.logging.warn("You did not set sample_buffer_size. By default, the "
-                      "training dataset is shuffled by chunk of %d examples. "
-                      "If your dataset is larger than this value and eval_delay "
-                      "is shorter than the training time of one epoch, a section "
-                      "of the dataset will be discarded. Consider setting "
-                      "sample_buffer_size to the size of your dataset."
-                      % default_sample_buffer_size)
-
     train_spec = tf.estimator.TrainSpec(
         input_fn=self._model.input_fn(
             tf.estimator.ModeKeys.TRAIN,
@@ -95,8 +89,8 @@ class Runner(object):
             bucket_width=self._config["train"].get("bucket_width", 5),
             single_pass=self._config["train"].get("single_pass", False),
             num_threads=self._config["train"].get("num_threads"),
-            sample_buffer_size=self._config["train"].get(
-                "sample_buffer_size", default_sample_buffer_size),
+            sample_buffer_size=self._config["train"].get("sample_buffer_size", 500000),
+            prefetch_buffer_size=self._config["train"].get("prefetch_buffer_size", 1),
             maximum_features_length=self._config["train"].get("maximum_features_length"),
             maximum_labels_length=self._config["train"].get("maximum_labels_length")),
         max_steps=self._config["train"].get("train_steps"),
@@ -128,6 +122,7 @@ class Runner(object):
             self._config["data"],
             self._config["data"]["eval_features_file"],
             num_threads=self._config["eval"].get("num_threads"),
+            prefetch_buffer_size=self._config["eval"].get("prefetch_buffer_size", 1),
             labels_file=self._config["data"]["eval_labels_file"]),
         steps=None,
         hooks=eval_hooks,
@@ -176,7 +171,8 @@ class Runner(object):
         batch_size,
         self._config["data"],
         features_file,
-        num_threads=self._config["infer"].get("num_threads"))
+        num_threads=self._config["infer"].get("num_threads"),
+        prefetch_buffer_size=self._config["infer"].get("prefetch_buffer_size", 1))
 
     if predictions_file:
       stream = open(predictions_file, "w")

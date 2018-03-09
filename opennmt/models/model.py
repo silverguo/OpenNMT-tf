@@ -18,8 +18,9 @@ from opennmt.utils.parallel import GraphDispatcher
 class Model(object):
   """Base class for models."""
 
-  def __init__(self, name, dtype=tf.float32):
+  def __init__(self, name, daisy_chain_variables=False, dtype=tf.float32):
     self.name = name
+    self.daisy_chain_variables = daisy_chain_variables
     self.dtype = dtype
 
   def model_fn(self, num_devices=1):
@@ -32,7 +33,8 @@ class Model(object):
       ``tf.estimator.Estimator`` 's ``model_fn`` argument for more details about
       arguments and the returned value.
     """
-    dispatcher = GraphDispatcher(num_devices)
+    dispatcher = GraphDispatcher(
+        num_devices, daisy_chain_variables=self.daisy_chain_variables)
 
     def _loss_op(features, labels, params, mode, config):
       """Single callable to compute the loss."""
@@ -225,6 +227,18 @@ class Model(object):
     return None
 
   @abc.abstractmethod
+  def _get_dataset_size(self, features_file):
+    """Returns the size of the dataset.
+
+    Args:
+      features_file: The file of features.
+
+    Returns:
+      The total size.
+    """
+    raise NotImplementedError()
+
+  @abc.abstractmethod
   def _get_features_builder(self, features_file):
     """Returns the recipe to build features.
 
@@ -260,6 +274,7 @@ class Model(object):
                      single_pass=False,
                      num_threads=None,
                      sample_buffer_size=None,
+                     prefetch_buffer_size=None,
                      maximum_features_length=None,
                      maximum_labels_length=None):
     """See ``input_fn``."""
@@ -283,6 +298,12 @@ class Model(object):
           feat_padded_shapes_fn(), labels_padded_shapes_fn())
 
     if mode == tf.estimator.ModeKeys.TRAIN:
+      dataset_size = self._get_dataset_size(features_file)
+      if sample_buffer_size < dataset_size:
+        # When the sample buffer size is smaller than the dataset size, shard
+        # the dataset in a random order. This ensures that all parts of the
+        # dataset can be seen when the evaluation frequency is high.
+        dataset = dataset.apply(data.random_shard(sample_buffer_size, dataset_size))
       dataset = dataset.shuffle(sample_buffer_size)
       dataset = dataset.map(
           process_fn,
@@ -311,7 +332,8 @@ class Model(object):
           batch_size,
           padded_shapes=padded_shapes_fn())
 
-    dataset = dataset.prefetch(1)
+    if prefetch_buffer_size:
+      dataset = dataset.prefetch(prefetch_buffer_size)
 
     iterator = dataset.make_initializable_iterator()
 
@@ -332,6 +354,7 @@ class Model(object):
                single_pass=False,
                num_threads=None,
                sample_buffer_size=None,
+               prefetch_buffer_size=None,
                maximum_features_length=None,
                maximum_labels_length=None):
     """Returns an input function.
@@ -352,6 +375,7 @@ class Model(object):
       single_pass: If ``True``, makes a single pass over the training data.
       num_threads: The number of elements processed in parallel.
       sample_buffer_size: The number of elements from which to sample.
+      prefetch_buffer_size: The number of batches to prefetch asynchronously.
       maximum_features_length: The maximum length or list of maximum lengths of
         the features sequence(s). ``None`` to not constrain the length.
       maximum_labels_length: The maximum length of the labels sequence.
@@ -382,6 +406,7 @@ class Model(object):
         single_pass=single_pass,
         num_threads=num_threads,
         sample_buffer_size=sample_buffer_size,
+        prefetch_buffer_size=prefetch_buffer_size,
         maximum_features_length=maximum_features_length,
         maximum_labels_length=maximum_labels_length)
 

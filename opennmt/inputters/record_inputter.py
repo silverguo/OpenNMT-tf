@@ -34,6 +34,9 @@ class SequenceRecordInputter(Inputter):
     self.input_depth = shape[-1]
     return tf.data.TFRecordDataset(data_file)
 
+  def get_dataset_size(self, data_file):
+    return sum(1 for _ in tf.python_io.tf_record_iterator(data_file))
+
   def _get_serving_input(self):
     receiver_tensors = {
         "tensor": tf.placeholder(self.dtype, shape=(None, None, self.input_depth)),
@@ -67,3 +70,21 @@ class SequenceRecordInputter(Inputter):
 
   def transform(self, inputs, mode):
     return inputs
+
+
+def write_sequence_record(vector, writer):
+  """Writes a vector as a TFRecord.
+
+  Args:
+    vector: A 2D Numpy array.
+    writer: A ``tf.python_io.TFRecordWriter``.
+  """
+  shape = list(vector.shape)
+  values = vector.flatten().tolist()
+
+  example = tf.train.Example(features=tf.train.Features(feature={
+      "shape": tf.train.Feature(int64_list=tf.train.Int64List(value=shape)),
+      "values": tf.train.Feature(float_list=tf.train.FloatList(value=values))
+  }))
+
+  writer.write(example.SerializeToString())
