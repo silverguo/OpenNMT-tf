@@ -1,0 +1,7 @@
+clean
+raw
+exp-*
+
+.DS_Store
+
+
