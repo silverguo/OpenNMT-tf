@@ -1,6 +1,6 @@
 clean
 raw
-exp-*
+exp_*
 
 
 .DS_Store
