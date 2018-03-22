@@ -8,8 +8,6 @@ OpenNMT-tf is a general purpose sequence modeling tool in TensorFlow with produc
 * sequence tagging
 * sequence classification
 
-*The project is still in beta and does not come with stability guarantees.*
-
 ## Key features
 
 OpenNMT-tf focuses on modularity to support advanced modeling and training capabilities:
@@ -27,28 +25,26 @@ OpenNMT-tf is also compatible with some of the best TensorFlow features:
 
 * replicated and distributed training
 * monitoring with [TensorBoard](https://www.tensorflow.org/get_started/summaries_and_tensorboard)
-* inference with [TensorFlow Serving](https://www.tensorflow.org/serving/) and the TensorFlow C++ API.
+* inference with [TensorFlow Serving](https://github.com/OpenNMT/OpenNMT-tf/tree/master/examples/serving) and the [TensorFlow C++ API](https://github.com/OpenNMT/OpenNMT-tf/tree/master/examples/cpp)
 
 ## Requirements
 
-* `tensorflow` (`1.4`)
+* `tensorflow` (`1.6`)
 * `pyyaml`
 
 ## Overview
 
 A minimal OpenNMT-tf run consists of 3 elements:
 
+* a **run** type: `train_and_eval`, `train`, `eval`, `infer`, or `export`
 * a Python file describing the **model**
 * a YAML file describing the **parameters**
-* a **run** type
 
-e.g.:
+that are passed to the main script:
 
 ```
 python -m bin.main <run_type> --model <model_file.py> --config <config_file.yml>
 ```
-
-When loading an existing checkpoint, the `--model` option is optional.
 
 * For more information about configuration files, see the [documentation](http://opennmt.net/OpenNMT-tf/configuration.html).
 * For more information about command line options, see the help flag `python -m bin.main -h`.
@@ -78,7 +74,11 @@ python -m bin.main infer --config config/opennmt-defaults.yml config/data/toy-en
 
 **Note:** do not expect any good translation results with this toy example. Consider training on [larger parallel datasets](http://www.statmt.org/wmt16/translation-task.html) instead.
 
-For more advanced usages, see the [documentation](http://opennmt.net/OpenNMT-tf).
+For more advanced usages, see the [documentation](http://opennmt.net/OpenNMT-tf) or the [WMT training scripts](https://github.com/OpenNMT/OpenNMT-tf/tree/master/scripts/wmt).
+
+## Using as a library
+
+OpenNMT-tf also exposes well-defined and [documented](http://opennmt.net/OpenNMT-tf/package/opennmt.html) functions and classes. For example, OpenNMT-tf has been used to implement [unsupervised NMT](https://github.com/OpenNMT/Hackathon/tree/master/unsupervised-nmt) in TensorFlow.
 
 ## Compatibility with {Lua,Py}Torch implementations
 
@@ -96,3 +96,4 @@ The implementation is inspired by the following:
 
 * [Documentation](http://opennmt.net/OpenNMT-tf)
 * [Forum](http://forum.opennmt.net)
+* [Gitter](https://gitter.im/OpenNMT/OpenNMT-tf)

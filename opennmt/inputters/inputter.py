@@ -14,7 +14,6 @@ class Inputter(object):
   """Base class for inputters."""
 
   def __init__(self, dtype=tf.float32):
-    self.padded_shapes = {}
     self.volatile = set()
     self.process_hooks = []
     self.dtype = dtype
@@ -32,25 +31,20 @@ class Inputter(object):
     """
     self.process_hooks.extend(hooks)
 
-  def set_data_field(self, data, key, value, padded_shape=None, volatile=False):
+  def set_data_field(self, data, key, value, volatile=False):
     """Sets a data field.
 
     Args:
       data: The data dictionary.
       key: The value key.
       value: The value to assign.
-      padded_shape: The padded shape of the value as given to
-        ``tf.data.Dataset.padded_batch``.
       volatile: If ``True``, the key/value pair will be removed once the
         processing done.
 
     Returns:
       The updated data dictionary.
     """
-    if padded_shape is None:
-      padded_shape = []
     data[key] = value
-    self.padded_shapes[key] = padded_shape
     if volatile:
       self.volatile.add(key)
     return data
@@ -66,7 +60,6 @@ class Inputter(object):
       The updated data dictionary.
     """
     del data[key]
-    del self.padded_shapes[key]
     return data
 
   def get_length(self, unused_data):
@@ -241,8 +234,9 @@ class MultiInputter(Inputter):
   def make_dataset(self, data_file):
     raise NotImplementedError()
 
+  @abc.abstractmethod
   def get_dataset_size(self, data_file):
-    return self.inputters[0].get_dataset_size(data_file)
+    raise NotImplementedError()
 
   def initialize(self, metadata):
     for inputter in self.inputters:
@@ -297,6 +291,18 @@ class ParallelInputter(MultiInputter):
         for inputter, data in zip(self.inputters, data_file)]
     return tf.data.Dataset.zip(tuple(datasets))
 
+  def get_dataset_size(self, data_file):
+    if not isinstance(data_file, list) or len(data_file) != len(self.inputters):
+      raise ValueError("The number of data files must be the same as the number of inputters")
+    dataset_sizes = [
+        inputter.get_dataset_size(data)
+        for inputter, data in zip(self.inputters, data_file)]
+    dataset_size = dataset_sizes[0]
+    for size in dataset_sizes:
+      if size != dataset_size:
+        raise RuntimeError("The parallel data files do not have the same size")
+    return dataset_size
+
   def _get_serving_input(self):
     all_receiver_tensors = {}
     all_features = {}
@@ -318,7 +324,6 @@ class ParallelInputter(MultiInputter):
             processed_data,
             prefixed_key,
             value,
-            padded_shape=inputter.padded_shapes[key],
             volatile=key in inputter.volatile)
     return processed_data
 
@@ -363,6 +368,9 @@ class MixedInputter(MultiInputter):
   def make_dataset(self, data_file):
     return self.inputters[0].make_dataset(data_file)
 
+  def get_dataset_size(self, data_file):
+    return self.inputters[0].get_dataset_size(data_file)
+
   def _get_serving_input(self):
     all_receiver_tensors = {}
     all_features = {}
@@ -375,7 +383,6 @@ class MixedInputter(MultiInputter):
   def _process(self, data):
     for inputter in self.inputters:
       data = inputter._process(data)  # pylint: disable=protected-access
-      self.padded_shapes.update(inputter.padded_shapes)
       self.volatile |= inputter.volatile
     return data
 

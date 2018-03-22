@@ -17,6 +17,7 @@ from opennmt.tokenizers.tokenizer import SpaceTokenizer
 from opennmt.inputters.inputter import Inputter
 from opennmt.utils.misc import count_lines
 from opennmt.constants import PADDING_TOKEN
+from opennmt.layers.common import embedding_lookup
 
 
 def visualize_embeddings(log_dir, embedding_var, vocabulary_file, num_oov_buckets=1):
@@ -175,29 +176,40 @@ def tokens_to_chars(tokens):
   def _string_len(token):
     return len(token.decode("utf-8"))
 
-  # Get the length of each token.
-  lengths = tf.map_fn(
-      lambda x: tf.py_func(_string_len, [x], tf.int64),
-      tokens,
-      dtype=tf.int64,
-      back_prop=False)
+  def _apply():
+    # Get the length of each token.
+    lengths = tf.map_fn(
+        lambda x: tf.py_func(_string_len, [x], tf.int64),
+        tokens,
+        dtype=tf.int64,
+        back_prop=False)
 
-  max_length = tf.reduce_max(lengths)
+    max_length = tf.reduce_max(lengths)
 
-  # Add a delimiter between each unicode character.
-  spaced_chars = tf.map_fn(
-      lambda x: tf.py_func(_split_chars, [x, max_length], [tf.string]),
-      tokens,
-      dtype=[tf.string],
-      back_prop=False)
+    # Add a delimiter between each unicode character.
+    spaced_chars = tf.map_fn(
+        lambda x: tf.py_func(_split_chars, [x, max_length], [tf.string]),
+        tokens,
+        dtype=[tf.string],
+        back_prop=False)
 
-  # Split on this delimiter
-  chars = tf.map_fn(
-      lambda x: tf.string_split(x, delimiter=" ").values,
-      spaced_chars,
-      dtype=tf.string,
-      back_prop=False)
+    # Split on this delimiter
+    chars = tf.map_fn(
+        lambda x: tf.string_split(x, delimiter=" ").values,
+        spaced_chars,
+        dtype=tf.string,
+        back_prop=False)
 
+    return chars, lengths
+
+  def _none():
+    chars = tf.constant([], dtype=tf.string)
+    lengths = tf.constant([], dtype=tf.int64)
+    return chars, lengths
+
+  chars, lengths = tf.cond(tf.equal(tf.shape(tokens)[0], 0), true_fn=_none, false_fn=_apply)
+  chars.set_shape([None, None])
+  lengths.set_shape([None])
   return chars, lengths
 
 
@@ -230,8 +242,8 @@ class TextInputter(Inputter):
       tokens = self.tokenizer.tokenize(text)
       length = tf.shape(tokens)[0]
 
-      data = self.set_data_field(data, "tokens", tokens, padded_shape=[None], volatile=True)
-      data = self.set_data_field(data, "length", length, padded_shape=[])
+      data = self.set_data_field(data, "tokens", tokens, volatile=True)
+      data = self.set_data_field(data, "length", length)
 
     return data
 
@@ -331,7 +343,7 @@ class WordEmbedder(TextInputter):
       tokens = data["tokens"]
       ids = self.vocabulary.lookup(tokens)
 
-      data = self.set_data_field(data, "ids", ids, padded_shape=[None])
+      data = self.set_data_field(data, "ids", ids)
 
     return data
 
@@ -374,7 +386,7 @@ class WordEmbedder(TextInputter):
           initializer=initializer,
           trainable=self.trainable)
 
-    outputs = tf.nn.embedding_lookup(embeddings, inputs)
+    outputs = embedding_lookup(embeddings, inputs)
 
     outputs = tf.layers.dropout(
         outputs,
@@ -449,7 +461,7 @@ class CharConvEmbedder(TextInputter):
       chars, _ = tokens_to_chars(tokens)
       ids = self.vocabulary.lookup(chars)
 
-      data = self.set_data_field(data, "char_ids", ids, padded_shape=[None, None])
+      data = self.set_data_field(data, "char_ids", ids)
 
     return data
 
@@ -469,7 +481,7 @@ class CharConvEmbedder(TextInputter):
     embeddings = tf.get_variable(
         "w_char_embs", shape=[self.vocabulary_size, self.embedding_size], dtype=self.dtype)
 
-    outputs = tf.nn.embedding_lookup(embeddings, inputs)
+    outputs = embedding_lookup(embeddings, inputs)
     outputs = tf.layers.dropout(
         outputs,
         rate=self.dropout,

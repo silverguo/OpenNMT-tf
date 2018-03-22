@@ -73,20 +73,10 @@ def roll_sequence(tensor, offsets):
   """
   batch_size = tf.shape(tensor)[0]
   time = tf.shape(tensor)[1]
-
-  cols = tf.range(time)
-  cols = tf.tile(cols, [batch_size])
-  cols = tf.reshape(cols, [batch_size, time])
+  cols, rows = tf.meshgrid(tf.range(time), tf.range(batch_size))
   cols -= tf.expand_dims(offsets, 1)
   cols = tf.mod(cols, time)
-
-  rows = tf.range(batch_size)
-  rows = tf.tile(rows, [time])
-  rows = tf.reshape(rows, [time, batch_size])
-  rows = tf.transpose(rows, perm=[1, 0])
-
-  indices = tf.concat([tf.expand_dims(rows, -1), tf.expand_dims(cols, -1)], -1)
-
+  indices = tf.stack([rows, cols], axis=-1)
   return tf.gather_nd(tensor, indices)
 
 
@@ -204,13 +194,14 @@ class JoinReducer(Reducer):
   """A reducer that joins its inputs in a single tuple."""
 
   def reduce(self, inputs):
-    output = ()
+    output = []
     for elem in inputs:
-      if isinstance(elem, tuple):
-        output += elem
+      if isinstance(elem, tuple) and not hasattr(elem, "_fields"):
+        for e in elem:
+          output.append(e)
       else:
-        output += (elem,)
-    return output
+        output.append(elem)
+    return tuple(output)
 
   def reduce_sequence(self, inputs, sequence_lengths):
     raise NotImplementedError("JoinReducer does not support sequence reduction")
