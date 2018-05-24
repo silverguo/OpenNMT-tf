@@ -3,13 +3,12 @@
 import subprocess
 
 import abc
+import io
 import re
 import os
 import six
 
 import tensorflow as tf
-
-from tensorflow.python.summary.writer.writer_cache import FileWriterCache as SummaryWriterCache
 
 from opennmt.utils.misc import get_third_party_dir
 
@@ -23,7 +22,7 @@ class ExternalEvaluator(object):
     self._summary_writer = None
 
     if output_dir is not None:
-      self._summary_writer = SummaryWriterCache.get(output_dir)
+      self._summary_writer = tf.summary.FileWriterCache.get(output_dir)
 
   def __call__(self, step, predictions_path):
     """Scores the predictions and logs the result.
@@ -39,13 +38,15 @@ class ExternalEvaluator(object):
       self._summarize_score(step, score)
     self._log_score(score)
 
+  def _summarize_value(self, step, tag, value):
+    summary = tf.Summary(value=[tf.Summary.Value(tag=tag, simple_value=value)])
+    self._summary_writer.add_summary(summary, step)
+
   # Some evaluators may return several scores so let them the ability to
   # define how to log the score result.
 
   def _summarize_score(self, step, score):
-    summary = tf.Summary(value=[tf.Summary.Value(
-        tag="external_evaluation/{}".format(self.name()), simple_value=score)])
-    self._summary_writer.add_summary(summary, step)
+    self._summarize_value(step, "external_evaluation/{}".format(self.name()), score)
 
   def _log_score(self, score):
     tf.logging.info("%s evaluation score: %f", self.name(), score)
@@ -59,6 +60,28 @@ class ExternalEvaluator(object):
   def score(self, labels_file, predictions_path):
     """Scores the predictions against the true output labels."""
     raise NotImplementedError()
+
+
+class ROUGEEvaluator(ExternalEvaluator):
+  """ROUGE evaluator based on https://github.com/pltrdy/rouge."""
+
+  def name(self):
+    return "ROUGE"
+
+  def _summarize_score(self, step, score):
+    self._summarize_value(step, "external_evaluation/ROUGE-1", score["rouge-1"])
+    self._summarize_value(step, "external_evaluation/ROUGE-2", score["rouge-2"])
+    self._summarize_value(step, "external_evaluation/ROUGE-L", score["rouge-l"])
+
+  def _log_score(self, score):
+    tf.logging.info("Evaluation score: ROUGE-1 = %f; ROUGE-2 = %f; ROUGE-L = %s",
+                    score["rouge-1"], score["rouge-2"], score["rouge-l"])
+
+  def score(self, labels_file, predictions_path):
+    from rouge import FilesRouge
+    files_rouge = FilesRouge(predictions_path, labels_file)
+    rouge_scores = files_rouge.get_scores(avg=True)
+    return {k:v["f"] for k, v in six.iteritems(rouge_scores)}
 
 
 class BLEUEvaluator(ExternalEvaluator):
@@ -78,7 +101,7 @@ class BLEUEvaluator(ExternalEvaluator):
       tf.logging.warning("%s", str(e))
       return None
     try:
-      with open(predictions_path, "r") as predictions_file:
+      with io.open(predictions_path, encoding="utf-8", mode="r") as predictions_file:
         bleu_out = subprocess.check_output(
             [os.path.join(third_party_dir, bleu_script), labels_file],
             stdin=predictions_file,
@@ -134,6 +157,8 @@ def external_evaluation_fn(evaluators_name, labels_file, output_dir=None):
       evaluator = BLEUEvaluator(labels_file=labels_file, output_dir=output_dir)
     elif name == "bleu-detok":
       evaluator = BLEUDetokEvaluator(labels_file=labels_file, output_dir=output_dir)
+    elif name == "rouge":
+      evaluator = ROUGEEvaluator(labels_file=labels_file, output_dir=output_dir)
     else:
       raise ValueError("No evaluator associated with the name: {}".format(name))
     evaluators.append(evaluator)

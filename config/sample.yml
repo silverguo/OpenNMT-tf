@@ -32,6 +32,10 @@ params:
   param_init: 0.1
   # (optional) Maximum gradients norm (default: None).
   clip_gradients: 5.0
+  # (optional) Weights regularization penalty (default: null).
+  regularization:
+    type: l2  # can be "l1", "l2", "l1_l2" (case-insensitive).
+    scale: 1e-4  # if using "l1_l2" regularization, this should be a YAML list.
   # (optional) Average loss in the time dimension in addition to the batch dimension (default: False).
   average_loss_in_time: false
   # (optional) The type of learning rate decay (default: None). See:
@@ -67,6 +71,9 @@ params:
   length_penalty: 0.2
   # (optional) Maximum decoding iterations before stopping (default: 250).
   maximum_iterations: 200
+  # (optional) Replace unknown target tokens by the original source token with the
+  # highest attention (default: false).
+  replace_unknown_target: false
 
 # Training options.
 train:
@@ -93,10 +100,11 @@ train:
   # (optional) The number of threads to use for processing data in parallel (default: 4).
   num_threads: 4
   # (optional) The number of elements from which to sample during shuffling (default: 500000).
-  # Consider setting this to the number of training examples.
+  # Set 0 or null to disable shuffling, -1 to match the number of training examples.
   sample_buffer_size: 500000
-  # (optional) The number of batches to prefetch asynchronously (default: 1).
-  prefetch_buffer_size: 1
+  # (optional) The number of batches to prefetch asynchronously. If not set, use an
+  # automatically tuned value on TensorFlow 1.8+ and 1 on older versions. (default: null).
+  prefetch_buffer_size: null
 
 # (optional) Evaluation options.
 eval:
@@ -111,8 +119,10 @@ eval:
   # (optional) Save evaluation predictions in model_dir/eval/.
   save_eval_predictions: false
   # (optional) Evalutator or list of evaluators that are called on the saved evaluation predictions.
-  # Available evaluators: BLEU, BLEU-detok
+  # Available evaluators: BLEU, BLEU-detok, ROUGE
   external_evaluators: BLEU
+  # (optional) Model exporter(s) to use after evaluation: last or null (default: last).
+  exporters: last
 
 # (optional) Inference options.
 infer:
@@ -124,3 +134,12 @@ infer:
   prefetch_buffer_size: 1
   # (optional) For compatible models, the number of hypotheses to output (default: 1).
   n_best: 1
+
+# (optional) Scoring options.
+score:
+  # (optional) The batch size to use (default: 64).
+  batch_size: 64
+  # (optional) The number of threads to use for processing data in parallel (default: 1).
+  num_threads: 1
+  # (optional) The number of batches to prefetch asynchronously (default: 1).
+  prefetch_buffer_size: 1

@@ -1,9 +1,11 @@
 """Optimization related functions."""
 
+import collections
+
 import tensorflow as tf
 
+from opennmt import optimizers
 from opennmt.utils import decay
-from opennmt.utils import adafactor
 
 
 def learning_rate_decay_fn(decay_type,
@@ -78,7 +80,7 @@ def get_optimizer_class(classname):
   if optimizer_class is None:
     optimizer_class = getattr(tf.contrib.opt, classname, None)
   if optimizer_class is None:
-    optimizer_class = getattr(adafactor, classname, None)
+    optimizer_class = getattr(optimizers, classname, None)
   if optimizer_class is None:
     raise ValueError("Unknown optimizer class: {}".format(classname))
 
@@ -118,9 +120,13 @@ def optimize(loss, params):
   optimizer_params = params.get("optimizer_params", {})
 
   if optimizer_class.__name__ == "AdafactorOptimizer":
-    optimizer = adafactor.get_optimizer_from_params(optimizer_class, optimizer_params)
+    optimizer = optimizers.get_adafactor_optimizer_from_params(optimizer_class, optimizer_params)
   else:
     optimizer = lambda lr: optimizer_class(lr, **optimizer_params)
+
+  regularization = params.get("regularization")
+  if regularization is not None:
+    loss += regularization_penalty(regularization["type"], regularization["scale"])
 
   return tf.contrib.layers.optimize_loss(
       loss,
@@ -135,3 +141,40 @@ def optimize(loss, params):
           "global_gradient_norm",
       ],
       colocate_gradients_with_ops=True)
+
+def regularization_penalty(regularization_type, scale, weights_list=None):
+  """Computes the weights regularization penalty.
+
+  Args:
+    regularization_type: The regularization type: ``l1``, ``l2``, or ``l1_l2``.
+    scale: The regularization multiplier. If :obj:`regularization_type` is
+      ``l1_l2``, this should be a list or tuple containing the L1 regularization
+      scale and the L2 regularization scale.
+    weights_list: The list of weights. Defaults to non bias variables.
+
+  Returns:
+    The regularization penalty.
+
+  Raises:
+    ValueError: if :obj:`regularization_type` is invalid or is ``l1_l2`` but
+      :obj:`scale` is not a sequence.
+  """
+  def _is_bias(variable):
+    return len(variable.shape.as_list()) == 1 and variable.name.endswith("bias:0")
+  if weights_list is None:
+    weights_list = [v for v in tf.trainable_variables() if not _is_bias(v)]
+
+  regularization_type = regularization_type.lower()
+  if regularization_type == "l1":
+    regularizer = tf.contrib.layers.l1_regularizer(float(scale))
+  elif regularization_type == "l2":
+    regularizer = tf.contrib.layers.l2_regularizer(float(scale))
+  elif regularization_type == "l1_l2":
+    if not isinstance(scale, collections.Sequence) or len(scale) != 2:
+      raise ValueError("l1_l2 regularization requires 2 scale values")
+    regularizer = tf.contrib.layers.l1_l2_regularizer(
+        scale_l1=float(scale[0]), scale_l2=float(scale[1]))
+  else:
+    raise ValueError("invalid regularization type %s" % regularization_type)
+
+  return tf.contrib.layers.apply_regularization(regularizer, weights_list=weights_list)

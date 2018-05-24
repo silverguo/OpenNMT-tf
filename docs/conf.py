@@ -3,6 +3,7 @@
 
 import os
 import sys
+import re
 sys.path.insert(0, "..")
 sys.path.insert(0, ".")
 
@@ -13,8 +14,8 @@ copyright = "2017, The OpenNMT Authors"
 author = "OpenNMT"
 language = "en"
 
-version = "0.1"  # The short X.Y version.
-release = "0.1"  # The full version, including alpha/beta/rc tags.
+version = "1.3"  # The short X.Y version.
+release = "1.3.0"  # The full version, including alpha/beta/rc tags.
 
 source_suffix = ".rst"
 master_doc = "index"
@@ -60,7 +61,10 @@ autodoc_member_order = "bysource"
 napoleon_include_init_with_doc = True
 napoleon_include_special_with_doc = True
 
-scv_whitelist_branches = ('master',)
+scv_whitelist_branches = ("none",)
+scv_whitelist_tags = (re.compile(r'^v\d+\.\d+\.0$'),)
+scv_sort = ("semver",)
+scv_greatest_tag = True
 
 def setup(app):
   app.add_stylesheet("custom.css")

@@ -2,12 +2,14 @@
 
 from importlib import import_module
 
+import io
 import os
 import pickle
 import sys
+import tensorflow as tf
 import yaml
 
-import tensorflow as tf
+from opennmt.models import catalog
 
 
 def load_model_module(path):
@@ -29,8 +31,19 @@ def load_model_module(path):
 
   return module
 
-def load_model(model_dir, model_file=None):
-  """Loads the model.
+def load_model_from_catalog(name):
+  """Loads a model from the catalog.
+
+  Args:
+    name: The model name.
+
+  Returns:
+    A :class:`opennmt.models.model.Model` instance.
+  """
+  return getattr(catalog, name)()
+
+def load_model(model_dir, model_file=None, model_name=None):
+  """Loads the model from the catalog or a file.
 
   The model object is pickled in :obj:`model_dir` to make the model
   configuration optional for future runs.
@@ -38,13 +51,22 @@ def load_model(model_dir, model_file=None):
   Args:
     model_dir: The model directory.
     model_file: An optional model configuration.
+      Mutually exclusive with :obj:`model_name`.
+    model_name: An optional model name from the catalog.
+      Mutually exclusive with :obj:`model_file`.
 
   Returns:
-    A :class:`opennmt.models.model.Model` object.
+    A :class:`opennmt.models.model.Model` instance.
+
+  Raises:
+    ValueError: if both :obj:`model_file` and :obj:`model_name` are set.
   """
+  if model_file and model_name:
+    raise ValueError("only one of model_file and model_name should be set")
+  model_name_or_path = model_file or model_name
   serial_model_file = os.path.join(model_dir, "model_description.pkl")
 
-  if model_file:
+  if model_name_or_path:
     if tf.train.latest_checkpoint(model_dir) is not None:
       tf.logging.warn(
           "You provided a model configuration but a checkpoint already exists. "
@@ -52,8 +74,11 @@ def load_model(model_dir, model_file=None):
           "the initial training. However, you can change non structural values like "
           "dropout.")
 
-    model_config = load_model_module(model_file)
-    model = model_config.model()
+    if model_file:
+      model_config = load_model_module(model_file)
+      model = model_config.model()
+    elif model_name:
+      model = load_model_from_catalog(model_name)
 
     with open(serial_model_file, "wb") as serial_model:
       pickle.dump(model, serial_model)
@@ -80,7 +105,7 @@ def load_config(config_paths, config=None):
     config = {}
 
   for config_path in config_paths:
-    with open(config_path) as config_file:
+    with io.open(config_path, encoding="utf-8") as config_file:
       subconfig = yaml.load(config_file.read())
 
       # Add or update section in main configuration.

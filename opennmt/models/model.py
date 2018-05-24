@@ -18,10 +18,35 @@ from opennmt.utils.parallel import GraphDispatcher
 class Model(object):
   """Base class for models."""
 
-  def __init__(self, name, daisy_chain_variables=False, dtype=tf.float32):
+  def __init__(self,
+               name,
+               features_inputter=None,
+               labels_inputter=None,
+               daisy_chain_variables=False,
+               dtype=None):
     self.name = name
+    self.features_inputter = features_inputter
+    self.labels_inputter = labels_inputter
     self.daisy_chain_variables = daisy_chain_variables
-    self.dtype = dtype
+    if dtype is None and self.features_inputter is not None:
+      self.dtype = features_inputter.dtype
+    else:
+      self.dtype = dtype or tf.float32
+
+  def __call__(self, features, labels, params, mode, config=None):
+    """Calls the model function.
+
+    Returns:
+      outputs: The model outputs (usually unscaled probabilities).
+        Optional if :obj:`mode` is ``tf.estimator.ModeKeys.PREDICT``.
+      predictions: The model predictions.
+        Optional if :obj:`mode` is ``tf.estimator.ModeKeys.TRAIN``.
+
+    See Also:
+      ``tf.estimator.Estimator`` 's ``model_fn`` argument for more details about
+      the arguments of this function.
+    """
+    return self._build(features, labels, params, mode, config=config)
 
   def model_fn(self, num_devices=1):
     """Returns the model function.
@@ -38,7 +63,7 @@ class Model(object):
 
     def _loss_op(features, labels, params, mode, config):
       """Single callable to compute the loss."""
-      logits, _ = self._build(features, labels, params, mode, config)
+      logits, _ = self._build(features, labels, params, mode, config=config)
       return self._compute_loss(features, labels, logits, params, mode)
 
     def _normalize_loss(num, den=None):
@@ -85,7 +110,7 @@ class Model(object):
             train_op=train_op)
       elif mode == tf.estimator.ModeKeys.EVAL:
         with tf.variable_scope(self.name):
-          logits, predictions = self._build(features, labels, params, mode, config)
+          logits, predictions = self._build(features, labels, params, mode, config=config)
           loss = self._compute_loss(features, labels, logits, params, mode)
 
         loss = _extract_loss(loss)
@@ -100,7 +125,7 @@ class Model(object):
             eval_metric_ops=eval_metric_ops)
       elif mode == tf.estimator.ModeKeys.PREDICT:
         with tf.variable_scope(self.name):
-          _, predictions = self._build(features, labels, params, mode, config)
+          _, predictions = self._build(features, labels, params, mode, config=config)
 
         export_outputs = {}
         export_outputs[tf.saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY] = (
@@ -131,7 +156,7 @@ class Model(object):
     return None
 
   @abc.abstractmethod
-  def _build(self, features, labels, params, mode, config):
+  def _build(self, features, labels, params, mode, config=None):
     """Creates the graph.
 
     Returns:
@@ -192,18 +217,22 @@ class Model(object):
       metadata: A dictionary containing additional metadata set
         by the user.
     """
-    pass
+    if self.features_inputter is not None:
+      self.features_inputter.initialize(metadata)
+    if self.labels_inputter is not None:
+      self.labels_inputter.initialize(metadata)
 
-  @abc.abstractmethod
   def _get_serving_input_receiver(self):
     """Returns an input receiver for serving this model.
 
     Returns:
       A ``tf.estimator.export.ServingInputReceiver``.
     """
-    raise NotImplementedError()
+    if self.features_inputter is None:
+      raise NotImplementedError()
+    return self.features_inputter.get_serving_input_receiver()
 
-  def _get_features_length(self, features):  # pylint: disable=unused-argument
+  def _get_features_length(self, features):
     """Returns the features length.
 
     Args:
@@ -213,9 +242,11 @@ class Model(object):
       The length as a ``tf.Tensor`` or list of ``tf.Tensor``, or ``None`` if
       length is undefined.
     """
-    return None
+    if self.features_inputter is None:
+      return None
+    return self.features_inputter.get_length(features)
 
-  def _get_labels_length(self, labels):  # pylint: disable=unused-argument
+  def _get_labels_length(self, labels):
     """Returns the labels length.
 
     Args:
@@ -224,9 +255,10 @@ class Model(object):
     Returns:
       The length as a ``tf.Tensor``  or ``None`` if length is undefined.
     """
-    return None
+    if self.labels_inputter is None:
+      return None
+    return self.labels_inputter.get_length(labels)
 
-  @abc.abstractmethod
   def _get_dataset_size(self, features_file):
     """Returns the size of the dataset.
 
@@ -236,9 +268,10 @@ class Model(object):
     Returns:
       The total size.
     """
-    raise NotImplementedError()
+    if self.features_inputter is None:
+      raise NotImplementedError()
+    return self.features_inputter.get_dataset_size(features_file)
 
-  @abc.abstractmethod
   def _get_features_builder(self, features_file):
     """Returns the recipe to build features.
 
@@ -248,9 +281,12 @@ class Model(object):
     Returns:
       A tuple ``(tf.data.Dataset, process_fn)``.
     """
-    raise NotImplementedError()
+    if self.features_inputter is None:
+      raise NotImplementedError()
+    dataset = self.features_inputter.make_dataset(features_file)
+    process_fn = self.features_inputter.process
+    return dataset, process_fn
 
-  @abc.abstractmethod
   def _get_labels_builder(self, labels_file):
     """Returns the recipe to build labels.
 
@@ -260,7 +296,11 @@ class Model(object):
     Returns:
       A tuple ``(tf.data.Dataset, process_fn)``.
     """
-    raise NotImplementedError()
+    if self.labels_inputter is None:
+      raise NotImplementedError()
+    dataset = self.labels_inputter.make_dataset(labels_file)
+    process_fn = self.labels_inputter.process
+    return dataset, process_fn
 
   def _input_fn_impl(self,
                      mode,
@@ -294,41 +334,36 @@ class Model(object):
           feat_process_fn(features), labels_process_fn(labels))
 
     if mode == tf.estimator.ModeKeys.TRAIN:
-      dataset_size = self._get_dataset_size(features_file)
-      if sample_buffer_size < dataset_size:
-        # When the sample buffer size is smaller than the dataset size, shard
-        # the dataset in a random order. This ensures that all parts of the
-        # dataset can be seen when the evaluation frequency is high.
-        dataset = dataset.apply(data.random_shard(sample_buffer_size, dataset_size))
-      dataset = dataset.shuffle(sample_buffer_size)
-      dataset = dataset.map(
-          process_fn,
-          num_parallel_calls=num_threads or 4)
-      dataset = dataset.apply(data.filter_examples_by_length(
-          maximum_features_length=maximum_features_length,
-          maximum_labels_length=maximum_labels_length,
-          features_length_fn=self._get_features_length,
-          labels_length_fn=self._get_labels_length))
-      dataset = dataset.apply(data.batch_parallel_dataset(
+      dataset = data.training_pipeline(
+          dataset,
           batch_size,
           batch_type=batch_type,
           batch_multiplier=batch_multiplier,
           bucket_width=bucket_width,
+          single_pass=single_pass,
+          process_fn=process_fn,
+          num_threads=num_threads,
+          shuffle_buffer_size=sample_buffer_size,
+          prefetch_buffer_size=prefetch_buffer_size,
+          dataset_size=self._get_dataset_size(features_file),
+          maximum_features_length=maximum_features_length,
+          maximum_labels_length=maximum_labels_length,
           features_length_fn=self._get_features_length,
-          labels_length_fn=self._get_labels_length))
-      dataset = dataset.apply(data.filter_irregular_batches(batch_multiplier))
-      if not single_pass:
-        dataset = dataset.repeat()
+          labels_length_fn=self._get_labels_length)
     else:
-      dataset = dataset.map(
-          process_fn,
-          num_parallel_calls=num_threads or 1)
-      dataset = dataset.apply(data.batch_parallel_dataset(batch_size))
+      dataset = data.inference_pipeline(
+          dataset,
+          batch_size,
+          process_fn=process_fn,
+          num_threads=num_threads,
+          prefetch_buffer_size=prefetch_buffer_size)
 
-    if prefetch_buffer_size:
-      dataset = dataset.prefetch(prefetch_buffer_size)
+    iterator = dataset.make_initializable_iterator()
 
-    return dataset
+    # Add the initializer to a standard collection for it to be initialized.
+    tf.add_to_collection(tf.GraphKeys.TABLE_INITIALIZERS, iterator.initializer)
+
+    return iterator.get_next()
 
   def input_fn(self,
                mode,
@@ -345,7 +380,7 @@ class Model(object):
                prefetch_buffer_size=None,
                maximum_features_length=None,
                maximum_labels_length=None):
-    """Returns an input pipeline.
+    """Returns an input function.
 
     Args:
       mode: A ``tf.estimator.ModeKeys`` mode.
@@ -363,14 +398,16 @@ class Model(object):
       single_pass: If ``True``, makes a single pass over the training data.
       num_threads: The number of elements processed in parallel.
       sample_buffer_size: The number of elements from which to sample.
-      prefetch_buffer_size: The number of batches to prefetch asynchronously.
+      prefetch_buffer_size: The number of batches to prefetch asynchronously. If
+        ``None``, use an automatically tuned value on TensorFlow 1.8+ and 1 on
+        older versions.
       maximum_features_length: The maximum length or list of maximum lengths of
         the features sequence(s). ``None`` to not constrain the length.
       maximum_labels_length: The maximum length of the labels sequence.
         ``None`` to not constrain the length.
 
     Returns:
-      A ``tf.data.Dataset``.
+      A callable that returns the next element.
 
     Raises:
       ValueError: if :obj:`labels_file` is not set when in training or

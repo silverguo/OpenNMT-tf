@@ -4,6 +4,8 @@ import inspect
 
 import tensorflow as tf
 
+from tensorflow.python.estimator.util import fn_args
+
 from opennmt.decoders.decoder import Decoder, logits_to_cum_log_probs, build_output_layer
 from opennmt.utils.cell import build_cell
 
@@ -52,8 +54,10 @@ class RNNDecoder(Decoder):
                   initial_state=None,
                   memory=None,
                   memory_sequence_length=None,
-                  dtype=None):
+                  dtype=None,
+                  alignment_history=False):
     _ = memory_sequence_length
+    _ = alignment_history
 
     if memory is None and dtype is None:
       raise ValueError("dtype argument is required when memory is not set")
@@ -142,7 +146,8 @@ class RNNDecoder(Decoder):
                      mode=tf.estimator.ModeKeys.PREDICT,
                      memory=None,
                      memory_sequence_length=None,
-                     dtype=None):
+                     dtype=None,
+                     return_alignment_history=False):
     batch_size = tf.shape(start_tokens)[0]
 
     helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
@@ -156,7 +161,8 @@ class RNNDecoder(Decoder):
         initial_state=initial_state,
         memory=memory,
         memory_sequence_length=memory_sequence_length,
-        dtype=dtype)
+        dtype=dtype,
+        alignment_history=return_alignment_history)
 
     if output_layer is None:
       output_layer = build_output_layer(self.num_units, vocab_size, dtype=dtype or memory.dtype)
@@ -178,6 +184,11 @@ class RNNDecoder(Decoder):
     length = tf.expand_dims(length, 1)
     log_probs = tf.expand_dims(log_probs, 1)
 
+    if return_alignment_history:
+      alignment_history = _get_alignment_history(state)
+      if alignment_history is not None:
+        alignment_history = tf.expand_dims(alignment_history, 1)
+      return (predicted_ids, state, length, log_probs, alignment_history)
     return (predicted_ids, state, length, log_probs)
 
   def dynamic_decode_and_search(self,
@@ -193,7 +204,17 @@ class RNNDecoder(Decoder):
                                 mode=tf.estimator.ModeKeys.PREDICT,
                                 memory=None,
                                 memory_sequence_length=None,
-                                dtype=None):
+                                dtype=None,
+                                return_alignment_history=False):
+    if (return_alignment_history and
+        "reorder_tensor_arrays" not in fn_args(tf.contrib.seq2seq.BeamSearchDecoder.__init__)):
+      tf.logging.warn("The current version of tf.contrib.seq2seq.BeamSearchDecoder "
+                      "does not support returning the alignment history. None will "
+                      "be returned instead. Consider upgrading TensorFlow.")
+      alignment_history = False
+    else:
+      alignment_history = return_alignment_history
+
     batch_size = tf.shape(start_tokens)[0]
 
     # Replicate batch `beam_width` times.
@@ -213,7 +234,8 @@ class RNNDecoder(Decoder):
         initial_state=initial_state,
         memory=memory,
         memory_sequence_length=memory_sequence_length,
-        dtype=dtype)
+        dtype=dtype,
+        alignment_history=alignment_history)
 
     if output_layer is None:
       output_layer = build_output_layer(self.num_units, vocab_size, dtype=dtype or memory.dtype)
@@ -235,8 +257,24 @@ class RNNDecoder(Decoder):
     log_probs = beam_state.log_probs
     state = beam_state.cell_state
 
+    if return_alignment_history:
+      alignment_history = _get_alignment_history(state)
+      if alignment_history is not None:
+        alignment_history = tf.reshape(
+            alignment_history, [batch_size, beam_width, -1, tf.shape(memory)[1]])
+      return (predicted_ids, state, length, log_probs, alignment_history)
     return (predicted_ids, state, length, log_probs)
 
+
+def _get_alignment_history(cell_state):
+  """Returns the alignment history from the cell state."""
+  if not hasattr(cell_state, "alignment_history") or cell_state.alignment_history == ():
+    return None
+  alignment_history = cell_state.alignment_history
+  if isinstance(alignment_history, tf.TensorArray):
+    alignment_history = alignment_history.stack()
+  alignment_history = tf.transpose(alignment_history, perm=[1, 0, 2])
+  return alignment_history
 
 def _build_attention_mechanism(attention_mechanism,
                                num_units,
@@ -244,8 +282,12 @@ def _build_attention_mechanism(attention_mechanism,
                                memory_sequence_length=None):
   """Builds an attention mechanism from a class or a callable."""
   if inspect.isclass(attention_mechanism):
+    kwargs = {}
+    if "dtype" in fn_args(attention_mechanism):
+      # For TensorFlow 1.5+, dtype should be set in the constructor.
+      kwargs["dtype"] = memory.dtype
     return attention_mechanism(
-        num_units, memory, memory_sequence_length=memory_sequence_length, dtype=memory.dtype)
+        num_units, memory, memory_sequence_length=memory_sequence_length, **kwargs)
   elif callable(attention_mechanism):
     return attention_mechanism(
         num_units, memory, memory_sequence_length)
@@ -304,7 +346,8 @@ class AttentionalRNNDecoder(RNNDecoder):
                   initial_state=None,
                   memory=None,
                   memory_sequence_length=None,
-                  dtype=None):
+                  dtype=None,
+                  alignment_history=False):
     attention_mechanism = _build_attention_mechanism(
         self.attention_mechanism_class,
         self.num_units,
@@ -322,6 +365,7 @@ class AttentionalRNNDecoder(RNNDecoder):
         cell,
         attention_mechanism,
         attention_layer_size=self.num_units,
+        alignment_history=alignment_history,
         output_attention=self.output_is_attention,
         initial_cell_state=initial_cell_state)
 
@@ -392,7 +436,8 @@ class MultiAttentionalRNNDecoder(RNNDecoder):
                   initial_state=None,
                   memory=None,
                   memory_sequence_length=None,
-                  dtype=None):
+                  dtype=None,
+                  alignment_history=False):
     attention_mechanisms = [
         _build_attention_mechanism(
             attention_mechanism,
