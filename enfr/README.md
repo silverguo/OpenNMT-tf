@@ -53,9 +53,9 @@ transform the sentence into a sequence of space-separated tokens together with p
 th tools/tokenize.lua -mode aggressive -segment_numbers -case_feature -joiner_annotate -nparallel 20 -bpe_model /path/to/bpe < /path/to/input > /path/to/input_tok
 ```
 
-## preprocess
+## build vocabulary
 ```bash
-th preprocess.lua -train_src /train/src -train_tgt /train/tgt -valid_src /valid/src -valid_tgt /valid/tgt -save_data /save/data -src_vocab_size 50000
+onmt-build-vocab --tokenizer OpenNMTTokenizer --tokenizer_config token_config --size 50000 --save_vocab vocab_path train_path
 ```
 
 ## train
