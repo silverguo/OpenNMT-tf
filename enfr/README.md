@@ -1,7 +1,5 @@
 # enfr
 
-# enfr
-
 ## processed
 - europarl
 - Tatoeba 
@@ -18,6 +16,7 @@
 - TedTalk
 - EAC
 - Multi30k
+- [OPUS](http://opus.nlpl.eu/)
 
 ## data clean
 ```bash
@@ -28,6 +27,11 @@
 some uniform transformation on the source sequences to identify and protect some specific sequences (for instance url), normalize characters (for instance all types of quotes, unicode variants) or even to normalize some variants (like dates) into unique representation simpler for the translation process
 ```bash
 # TBD
+```
+
+## tokenization before bpe
+```bash
+onmt-tokenize-text --tokenizer OpenNMTTokenizer --tokenizer_config enfr/config/tokenization/no_bpe.yml < input > output
 ```
 
 ## bpe
