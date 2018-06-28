@@ -43,24 +43,16 @@ re-apply with vocab filter
 ```bash
 subword-nmt apply-bpe -c {codes_file} --vocabulary {vocab_file}.L1 --vocabulary-threshold 50 < {train_file}.L1 > {train_file}.BPE.L1
 ```
-```bash
-subword-nmt apply-bpe -c {codes_file} --vocabulary {vocab_file}.L2 --vocabulary-threshold 50 < {train_file}.L2 > {train_file}.BPE.L2
-```
-
-## tokenization
-transform the sentence into a sequence of space-separated tokens together with possible features
-```bash
-th tools/tokenize.lua -mode aggressive -segment_numbers -case_feature -joiner_annotate -nparallel 20 -bpe_model /path/to/bpe < /path/to/input > /path/to/input_tok
-```
 
 ## build vocabulary
+build vocab with bpe tok
 ```bash
 onmt-build-vocab --tokenizer OpenNMTTokenizer --tokenizer_config token_config --size 50000 --save_vocab vocab_path train_path
 ```
 
 ## train
 ```bash
-th train.lua -layers 4 -word_vec_size 800 -encoder_type brnn -residual -rnn_size 800 -start_decay_at 6 -end_epoch 20 -gpuid 1 -data /load/data -save_model /save/model -log_file /save/log
+CUDA_VISIBLE_DEVICES=0,1,2,3 onmt-main train_and_eval --model model_path --config train_config --num_gpus 4
 ```
 
 ## release
