@@ -1,14 +1,14 @@
-model_dir: enfr/exp_jun28/model 
+model_dir: 
 
 data:
-  train_features_file: enfr/exp_jun28/data/train.en
-  train_labels_file: enfr/exp_jun28/data/train.fr
-  eval_features_file: enfr/exp_jun28/data/dev.en
-  eval_labels_file: enfr/exp_jun28/data/dev.fr
-  source_words_vocabulary: enfr/exp_jun28/data/vocab.en
-  target_words_vocabulary: enfr/exp_jun28/data/vocab.fr
-  source_tokenizer_config: enfr/exp_jun28/config/tok_en_bpe.yml
-  target_tokenizer_config: enfr/exp_jun28/config/tok_fr_bpe.yml
+  train_features_file: 
+  train_labels_file: 
+  eval_features_file: 
+  eval_labels_file: 
+  source_words_vocabulary: 
+  target_words_vocabulary:
+  source_tokenizer_config: 
+  target_tokenizer_config: 
 
 params:
   optimizer: GradientDescentOptimizer
