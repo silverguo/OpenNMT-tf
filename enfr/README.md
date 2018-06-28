@@ -35,9 +35,16 @@ onmt-tokenize-text --tokenizer OpenNMTTokenizer --tokenizer_config enfr/config/t
 ```
 
 ## bpe
-segment text into subword units
+segment text into subword units by python package
 ```bash
-th tools/learn_bpe.lua -tok_mode aggressive -tok_segment_numbers -tok_case_feature -size 32000 -save_bpe /path/to/bpe < /path/to/input
+subword-nmt learn-joint-bpe-and-vocab --input {train_file}.L1 {train_file}.L2 -s {num_operations} -o {codes_file} --write-vocabulary {vocab_file}.L1 {vocab_file}.L2
+```
+re-apply with vocab filter
+```bash
+subword-nmt apply-bpe -c {codes_file} --vocabulary {vocab_file}.L1 --vocabulary-threshold 50 < {train_file}.L1 > {train_file}.BPE.L1
+```
+```bash
+subword-nmt apply-bpe -c {codes_file} --vocabulary {vocab_file}.L2 --vocabulary-threshold 50 < {train_file}.L2 > {train_file}.BPE.L2
 ```
 
 ## tokenization
