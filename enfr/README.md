@@ -100,6 +100,24 @@ inference
 onmt-main infer --config config_file --features_file input --predictions_file output --checkpoint_path path/model.ckpt-200000
 ```
 
+## test bleu score
+input from sgm
+```bash
+perl input-from-sgm.perl < input.sgm > output
+```
+preprocessing
+```bash
+spm_encode --model=model_path < file > file.sp
+```
+detok or decode
+```bash
+spm_decode --model=model_path --input_format=piece < input > output.detok
+```
+bleu score
+```bash
+perl multi-bleu-detok.perl data_ref < data_pred
+```
+
 
 # TO BE MODIFIED
 
