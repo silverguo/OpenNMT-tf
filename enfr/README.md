@@ -97,7 +97,7 @@ onmt-average-checkpoints --model_dir dir --output_dir dir/avg --max_count 5
 ```
 inference
 ```bash
-onmt-main infer --config config_file --features_file input --predictions_file output --checkpoint_path path/model.ckpt-200000
+onmt-main infer --model_type Transformer --config config_file --features_file input --predictions_file output --checkpoint_path path/model.ckpt-200000
 ```
 
 ## test bleu score
@@ -121,36 +121,10 @@ perl multi-bleu-detok.perl data_ref < data_pred
 
 # TO BE MODIFIED
 
-## release
-```bash
-th tools/release_model.lua -gpuid 1 -model /path/model
-```
-
-## translate
-```bash
-th translate.lua -replace_unk -tok_src_mode aggressive -tok_tgt_mode aggressive -tok_src_case_feature -tok_tgt_case_feature -tok_src_segment_numbers -tok_tgt_segment_numbers -tok_src_joiner_annotate -tok_tgt_joiner_annotate -detokenize_output -beam_size 10 -tok_src_bpe_model /src/bpe -tok_tgt_bpe_model /tgt/bpe -model /path/model -src /path/src -output /path/output
-```
-
 ## server
 ```bash
 th tools/rest_translation_server.lua -host 127.0.0.1 -port 9201 -mode aggressive -segment_numbers -joiner_annotate -replace_unk -beam_size 10 -case_feature -bpe_model /path/bpe -model /path/model 
 ```
 
-## multi server
-```bash
-th tools/rest_multi_models.lua -port 9201 -model_config /path/yml
-```
-config file example
-```yaml
--
-  model: '/path/model'
-  mode: 'aggressive'
-  case_feature: true
-  segment_numbers: true
-  bpe_model: '/model/bpe'
-  joiner_annotate: true
-  replace_unk: true
-  beam_size: 10
-```
 
 
