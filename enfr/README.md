@@ -81,7 +81,6 @@ perl -pe '$/=""; s/\n\n/\n\t\n/;' spm.vocab.tmp > spm.vocab
 rm spm.vocab.tmp
 ```
 
-
 ## train
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3 onmt-main train_and_eval --model model_path --config train_config --num_gpus 4
@@ -90,6 +89,17 @@ or model exist
 ```bash
 CUDA_VISIBLE_DEVICES=0,1,2,3 onmt-main train_and_eval --model_type Transformer --config train_config --num_gpus 4
 ```
+
+## inference
+checkpoint average
+```bash
+onmt-average-checkpoints --model_dir dir --output_dir dir/avg --max_count 5
+```
+inference
+```bash
+onmt-main infer --config config_file --features_file input --predictions_file output --checkpoint_path path/model.ckpt-200000
+```
+
 
 # TO BE MODIFIED
 
